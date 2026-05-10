@@ -70,4 +70,4 @@ MIT License — feel free to use, modify and share!
 
 ---
 
-*Made with ❤️ by miku*
+*Made by oli*
