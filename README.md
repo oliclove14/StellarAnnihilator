@@ -55,7 +55,7 @@ A Minecraft Fabric mod for **1.21.11** that adds a devastating orbital strike we
 ## 🔨 Building from Source
 
 ```bash
-git clone https://github.com/yourusername/StellarAnnihilator.git
+git clone https://github.com/oliclove14/StellarAnnihilator.git
 cd StellarAnnihilator
 ./gradlew build
 ```
