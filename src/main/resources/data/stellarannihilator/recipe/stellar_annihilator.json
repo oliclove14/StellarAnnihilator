@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    {"item": "stellarannihilator:solar_fragment"},
+    {"item": "stellarannihilator:void_core"}
+  ],
+  "result": {
+    "id": "stellarannihilator:stellar_annihilator",
+    "count": 1
+  }
+}
