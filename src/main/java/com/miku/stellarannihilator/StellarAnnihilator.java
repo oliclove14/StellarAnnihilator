@@ -12,6 +12,7 @@ public class StellarAnnihilator implements ModInitializer {
 	@Override
 	public void onInitialize() {
 		LOGGER.info("StellarAnnihilator initializing!");
+		com.miku.stellarannihilator.network.StrikePacket.register();
 		ModItems.register();
 		ModLoot.register();
 	}
