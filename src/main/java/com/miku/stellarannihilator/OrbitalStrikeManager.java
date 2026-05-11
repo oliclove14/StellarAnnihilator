@@ -3,10 +3,11 @@ package com.miku.stellarannihilator;
 import com.miku.stellarannihilator.network.StrikePacket;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.particle.DustParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
@@ -18,12 +19,15 @@ import java.util.UUID;
 public class OrbitalStrikeManager {
 
     private static final Map<UUID, StrikeData> activeStrikes = new HashMap<>();
-    private static final int STRIKE_DELAY = 300;
+    private static final int STRIKE_DELAY = 300; // 15 Seconds
 
     public static void beginStrike(ServerWorld world, PlayerEntity player, BlockPos target) {
         StrikeData data = new StrikeData(target, world.getTime());
         activeStrikes.put(player.getUuid(), data);
-        world.setWeather(0, 12000, true, false);
+
+        // Visual: Initial ping sound
+        world.playSound(null, target, SoundEvents.BLOCK_BEACON_ACTIVATE, SoundCategory.AMBIENT, 5.0f, 2.0f);
+
         for (var p : world.getPlayers()) {
             ServerPlayNetworking.send(p, new StrikePacket(target));
         }
@@ -38,21 +42,31 @@ public class OrbitalStrikeManager {
             StrikeData data = entry.getValue();
             long elapsed = currentTime - data.startTime;
 
-            if (elapsed > 0 && elapsed < STRIKE_DELAY) {
+            // Phase 1: 0-10 Seconds (Targeting Rings)
+            if (elapsed > 0 && elapsed < 200) {
                 spawnRings(world, data.target, elapsed);
             }
 
-            if (elapsed >= STRIKE_DELAY * 0.6 && elapsed < STRIKE_DELAY) {
-                spawnBeam(world, data.target);
+            // Phase 2: 10-15 Seconds (Energy Build-up / Charging Beam)
+            if (elapsed >= 200 && elapsed < STRIKE_DELAY) {
+                spawnChargingBeam(world, data.target, elapsed);
+                if (elapsed % 20 == 0) {
+                    world.playSound(null, data.target, SoundEvents.BLOCK_BEACON_AMBIENT, SoundCategory.AMBIENT, 2.0f, 0.5f + ((float)elapsed/300));
+                }
             }
 
+            // Chat Announcements
             if (elapsed == 20) {
-                broadcastToAll(world, "§4☀ §cOrbital strike incoming...");
-            } else if (elapsed == 100) {
-                broadcastToAll(world, "§4⚡ §c§lTAKE COVER!");
-            } else if (elapsed == STRIKE_DELAY) {
+                broadcastToAll(world, "§b[SYSTEM] §fOrbital coordinates locked...");
+            } else if (elapsed == 200) {
+                broadcastToAll(world, "§3[SYSTEM] §b§lORBITAL BEAM CHARGING...");
+            } else if (elapsed == 280) {
+                world.playSound(null, data.target, SoundEvents.ENTITY_LIGHTNING_BOLT_THUNDER, SoundCategory.AMBIENT, 10.0f, 0.5f);
+            }
+
+            // Final Execution: 15 Seconds
+            else if (elapsed >= STRIKE_DELAY) {
                 executeStrike(world, data.target);
-                world.setWeather(6000, 0, false, false);
                 return true;
             }
 
@@ -61,124 +75,81 @@ public class OrbitalStrikeManager {
     }
 
     private static void spawnRings(ServerWorld world, BlockPos target, long elapsed) {
-        double progress = (double) elapsed / STRIKE_DELAY;
-        double maxRadius = 120.0;
-        double radius = maxRadius * (1.0 - progress);
-        int ringCount = 6;
-        int points = 120;
+        double progress = (double) elapsed / 200.0;
+        double radius = 10.0 * (1.0 - progress);
+        double x = target.getX() + 0.5;
+        double z = target.getZ() + 0.5;
+        double y = target.getY() + 0.2;
 
-        for (int ring = 0; ring < ringCount; ring++) {
-            double ringRadius = radius - (ring * 5.0);
-            if (ringRadius <= 0) continue;
+        // Draw a cyan circular "target" on the ground
+        for (int i = 0; i < 30; i++) {
+            double angle = (2 * Math.PI * i) / 30;
+            double px = x + radius * Math.cos(angle);
+            double pz = z + radius * Math.sin(angle);
 
-            double ringY = target.getY() + 80 - (progress * 75);
-
-            for (int j = 0; j < points; j++) {
-                double angle = (2 * Math.PI * j) / points;
-                double x = target.getX() + ringRadius * Math.cos(angle);
-                double z = target.getZ() + ringRadius * Math.sin(angle);
-
-                world.spawnParticles(ParticleTypes.FLAME, x, ringY, z, 1, 0, 0, 0, 0);
-
-                if (j % 3 == 0) {
-                    world.spawnParticles(ParticleTypes.END_ROD,
-                            target.getX() + (ringRadius - 1) * Math.cos(angle),
-                            ringY,
-                            target.getZ() + (ringRadius - 1) * Math.sin(angle),
-                            1, 0, 0, 0, 0);
-                }
-            }
-
-            if (elapsed % 3 == 0) {
-                double sparkAngle = Math.random() * 2 * Math.PI;
-                world.spawnParticles(ParticleTypes.ELECTRIC_SPARK,
-                        target.getX() + ringRadius * Math.cos(sparkAngle),
-                        ringY,
-                        target.getZ() + ringRadius * Math.sin(sparkAngle),
-                        3, 0.5, 0.5, 0.5, 0.1);
-            }
-        }
-
-        if (progress > 0.4) {
-            double pillarHeight = (progress - 0.4) / 0.6 * 60;
-            for (int h = 0; h < (int) pillarHeight; h += 2) {
-                world.spawnParticles(ParticleTypes.FLAME,
-                        target.getX(), target.getY() + h, target.getZ(),
-                        2, 0.3, 0, 0.3, 0);
+            // Sci-fi Blue/Cyan Particles
+            world.spawnParticles(ParticleTypes.SOUL_FIRE_FLAME, px, y, pz, 1, 0, 0.1, 0, 0.02);
+            if (elapsed % 10 == 0) {
+                world.spawnParticles(ParticleTypes.GLOW, px, y + 0.5, pz, 1, 0, 0.5, 0, 0.05);
             }
         }
     }
 
-    private static void spawnBeam(ServerWorld world, BlockPos target) {
-        int maxHeight = 320;
+    private static void spawnChargingBeam(ServerWorld world, BlockPos target, long elapsed) {
+        double x = target.getX() + 0.5;
+        double z = target.getZ() + 0.5;
 
-        for (int y = target.getY(); y < maxHeight; y += 1) {
-            world.spawnParticles(ParticleTypes.END_ROD,
-                    target.getX(), y, target.getZ(),
-                    2, 0.08, 0, 0.08, 0);
+        // Thickening the beam as it charges
+        float intensity = (float) (elapsed - 200) / 100f;
+        int height = 320;
 
-            world.spawnParticles(ParticleTypes.FLAME,
-                    target.getX(), y, target.getZ(),
-                    2, 0.2, 0, 0.2, 0);
+        for (int y = target.getY(); y < height; y += 4) {
+            // Core Cyan Line
+            world.spawnParticles(ParticleTypes.SOUL_FIRE_FLAME, x, y, z, (int)(5 * intensity), 0.1, 1.0, 0.1, 0.01);
 
-            if (y % 2 == 0) {
-                for (int r = 0; r < 12; r++) {
-                    double angle = (2 * Math.PI * r) / 12;
-                    double radius = 2.0;
-                    world.spawnParticles(ParticleTypes.FLAME,
-                            target.getX() + radius * Math.cos(angle),
-                            y,
-                            target.getZ() + radius * Math.sin(angle),
-                            1, 0, 0, 0, 0);
-                }
+            // Electric arcs around the beam
+            if (world.random.nextFloat() < 0.2f) {
+                double offsetX = (world.random.nextDouble() - 0.5) * 2.0;
+                double offsetZ = (world.random.nextDouble() - 0.5) * 2.0;
+                world.spawnParticles(ParticleTypes.ELECTRIC_SPARK, x + offsetX, y, z + offsetZ, 1, 0, 0, 0, 0.1);
             }
-
-            if (y % 8 == 0) {
-                world.spawnParticles(ParticleTypes.ELECTRIC_SPARK,
-                        target.getX(), y, target.getZ(),
-                        3, 0.5, 0.1, 0.5, 0.2);
-            }
-        }
-
-        for (int r = 0; r < 48; r++) {
-            double angle = (2 * Math.PI * r) / 48;
-            double radius = 4.0 + Math.random() * 3;
-            world.spawnParticles(ParticleTypes.FLAME,
-                    target.getX() + radius * Math.cos(angle),
-                    target.getY() + 0.5,
-                    target.getZ() + radius * Math.sin(angle),
-                    1, 0, 0.1, 0, 0);
         }
     }
 
     private static void executeStrike(ServerWorld world, BlockPos target) {
-        for (int i = 0; i < 300; i++) {
-            double angle = Math.random() * 2 * Math.PI;
-            double r = Math.random() * 25;
-            world.spawnParticles(ParticleTypes.FLAME,
-                    target.getX() + r * Math.cos(angle),
-                    target.getY() + Math.random() * 40,
-                    target.getZ() + r * Math.sin(angle),
-                    1, 0, 0.3, 0, 0);
-            world.spawnParticles(ParticleTypes.ELECTRIC_SPARK,
-                    target.getX() + r * Math.cos(angle),
-                    target.getY() + Math.random() * 20,
-                    target.getZ() + r * Math.sin(angle),
-                    1, 0.5, 0.5, 0.5, 0.2);
+        double x = target.getX() + 0.5;
+        double y = target.getY();
+        double z = target.getZ() + 0.5;
+
+        // 1. THE MASSIVE BEAM (Dense Cylinder)
+        for (int i = 0; i < 320; i += 2) {
+            // Inner Core (Pure White/Cyan)
+            world.spawnParticles(ParticleTypes.SONIC_BOOM, x, y + 1, z, 1, 0, 0, 0, 0);
+
+            // Outer Pillar (Large Cyan volume)
+            world.spawnParticles(ParticleTypes.SOUL_FIRE_FLAME, x, y + i, z, 20, 1.2, 0.5, 1.2, 0.05);
+
+            // Energy Sparks
+            world.spawnParticles(ParticleTypes.GLOW, x, y + i, z, 5, 2.0, 1.0, 2.0, 0.1);
         }
 
-        world.createExplosion(null,
-                target.getX(), target.getY(), target.getZ(),
-                40.0f, true, World.ExplosionSourceType.TNT);
+        // 2. IMPACT VISUALS
+        world.spawnParticles(ParticleTypes.SONIC_BOOM, x, y + 1, z, 5, 1.5, 1.5, 1.5, 0.1);
+        world.playSound(null, target, SoundEvents.ENTITY_GENERIC_EXPLODE.value(), SoundCategory.BLOCKS, 20.0f, 0.5f);
 
-        for (int i = 0; i < 12; i++) {
-            double offsetX = (Math.random() - 0.5) * 30;
-            double offsetZ = (Math.random() - 0.5) * 30;
-            world.createExplosion(null,
-                    target.getX() + offsetX,
-                    target.getY(),
-                    target.getZ() + offsetZ,
-                    20.0f, true, World.ExplosionSourceType.TNT);
+        // 3. ACTUAL DAMAGE / EXPLOSION
+        // Primary Explosion
+        world.createExplosion(null, x, y, z, 45.0f, true, World.ExplosionSourceType.TNT);
+
+        // Cluster Annihilation (Simulating "Stellar" impact)
+        for (int i = 0; i < 15; i++) {
+            double offsetX = (world.random.nextDouble() - 0.5) * 40;
+            double offsetZ = (world.random.nextDouble() - 0.5) * 40;
+            world.createExplosion(null, x + offsetX, y, z + offsetZ, 15.0f, true, World.ExplosionSourceType.TNT);
+
+            // Add blue fire to the craters
+            BlockPos firePos = new BlockPos((int)(x + offsetX), (int)y, (int)(z + offsetZ));
+            // You can add logic here to set blocks to soul fire if desired
         }
     }
 
