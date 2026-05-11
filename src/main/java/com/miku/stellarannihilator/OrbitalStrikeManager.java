@@ -3,6 +3,7 @@ package com.miku.stellarannihilator;
 import com.miku.stellarannihilator.network.StrikePacket;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.particle.DustParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
@@ -17,12 +18,11 @@ import java.util.UUID;
 public class OrbitalStrikeManager {
 
     private static final Map<UUID, StrikeData> activeStrikes = new HashMap<>();
-    private static final int STRIKE_DELAY = 300; // 15 seconds
+    private static final int STRIKE_DELAY = 300;
 
     public static void beginStrike(ServerWorld world, PlayerEntity player, BlockPos target) {
         StrikeData data = new StrikeData(target, world.getTime());
         activeStrikes.put(player.getUuid(), data);
-        broadcastToAll(world, "§8☀ The sky darkens...");
         world.setWeather(0, 12000, true, false);
         for (var p : world.getPlayers()) {
             ServerPlayNetworking.send(p, new StrikePacket(target));
@@ -38,98 +38,133 @@ public class OrbitalStrikeManager {
             StrikeData data = entry.getValue();
             long elapsed = currentTime - data.startTime;
 
-            // Spawn rings every tick
             if (elapsed > 0 && elapsed < STRIKE_DELAY) {
                 spawnRings(world, data.target, elapsed);
             }
 
-            // Beam in final 40 ticks (2 seconds)
-            if (elapsed >= STRIKE_DELAY - 40 && elapsed < STRIKE_DELAY) {
+            if (elapsed >= STRIKE_DELAY * 0.6 && elapsed < STRIKE_DELAY) {
                 spawnBeam(world, data.target);
             }
 
             if (elapsed == 20) {
-                broadcastToAll(world, "§e☀ Energy gathering from the sun...");
+                broadcastToAll(world, "§4☀ §cOrbital strike incoming...");
             } else if (elapsed == 100) {
-                broadcastToAll(world, "§4⚡ §cThe rings converge... take cover!");
-            } else if (elapsed == STRIKE_DELAY - 40) {
-                broadcastToAll(world, "§4§lFIRING!");
+                broadcastToAll(world, "§4⚡ §c§lTAKE COVER!");
             } else if (elapsed == STRIKE_DELAY) {
-                broadcastToAll(world, "§4§l💥 STELLAR ANNIHILATOR STRIKE!");
                 executeStrike(world, data.target);
                 world.setWeather(6000, 0, false, false);
                 return true;
             }
+
             return false;
         });
     }
 
     private static void spawnRings(ServerWorld world, BlockPos target, long elapsed) {
         double progress = (double) elapsed / STRIKE_DELAY;
-
-        // Start with huge radius and shrink to 0
-        double maxRadius = 80.0;
+        double maxRadius = 120.0;
         double radius = maxRadius * (1.0 - progress);
-
-        // 5 rings at different heights
-        int ringCount = 5;
-        int points = 72; // more points = smoother ring
+        int ringCount = 6;
+        int points = 120;
 
         for (int ring = 0; ring < ringCount; ring++) {
-            double ringRadius = radius - (ring * 4.0);
+            double ringRadius = radius - (ring * 5.0);
             if (ringRadius <= 0) continue;
 
-            // Rings float high up and descend toward target
-            double ringY = target.getY() + 60 - (progress * 55);
+            double ringY = target.getY() + 80 - (progress * 75);
 
             for (int j = 0; j < points; j++) {
                 double angle = (2 * Math.PI * j) / points;
                 double x = target.getX() + ringRadius * Math.cos(angle);
                 double z = target.getZ() + ringRadius * Math.sin(angle);
 
-                world.spawnParticles(ParticleTypes.FLAME,
-                        x, ringY, z, 1, 0, 0, 0, 0);
+                world.spawnParticles(ParticleTypes.FLAME, x, ringY, z, 1, 0, 0, 0, 0);
 
-                // Every 4th point add lava for thicker look
-                if (j % 4 == 0) {
-                    world.spawnParticles(ParticleTypes.LAVA,
-                            x, ringY, z, 1, 0, 0, 0, 0);
+                if (j % 3 == 0) {
+                    world.spawnParticles(ParticleTypes.END_ROD,
+                            target.getX() + (ringRadius - 1) * Math.cos(angle),
+                            ringY,
+                            target.getZ() + (ringRadius - 1) * Math.sin(angle),
+                            1, 0, 0, 0, 0);
                 }
+            }
+
+            if (elapsed % 3 == 0) {
+                double sparkAngle = Math.random() * 2 * Math.PI;
+                world.spawnParticles(ParticleTypes.ELECTRIC_SPARK,
+                        target.getX() + ringRadius * Math.cos(sparkAngle),
+                        ringY,
+                        target.getZ() + ringRadius * Math.sin(sparkAngle),
+                        3, 0.5, 0.5, 0.5, 0.1);
+            }
+        }
+
+        if (progress > 0.4) {
+            double pillarHeight = (progress - 0.4) / 0.6 * 60;
+            for (int h = 0; h < (int) pillarHeight; h += 2) {
+                world.spawnParticles(ParticleTypes.FLAME,
+                        target.getX(), target.getY() + h, target.getZ(),
+                        2, 0.3, 0, 0.3, 0);
             }
         }
     }
 
     private static void spawnBeam(ServerWorld world, BlockPos target) {
-        // Shoot particles from high up down to target
-        for (int i = 0; i < 20; i++) {
-            double height = 50 + Math.random() * 50;
-            double spreadX = (Math.random() - 0.5) * 2;
-            double spreadZ = (Math.random() - 0.5) * 2;
+        int maxHeight = 320;
 
+        for (int y = target.getY(); y < maxHeight; y += 1) {
             world.spawnParticles(ParticleTypes.END_ROD,
-                    target.getX() + spreadX,
-                    target.getY() + height,
-                    target.getZ() + spreadZ,
-                    1, 0, -2, 0, 0.5);
+                    target.getX(), y, target.getZ(),
+                    2, 0.08, 0, 0.08, 0);
 
             world.spawnParticles(ParticleTypes.FLAME,
-                    target.getX() + spreadX,
-                    target.getY() + height,
-                    target.getZ() + spreadZ,
-                    1, 0, -2, 0, 0.5);
+                    target.getX(), y, target.getZ(),
+                    2, 0.2, 0, 0.2, 0);
+
+            if (y % 2 == 0) {
+                for (int r = 0; r < 12; r++) {
+                    double angle = (2 * Math.PI * r) / 12;
+                    double radius = 2.0;
+                    world.spawnParticles(ParticleTypes.FLAME,
+                            target.getX() + radius * Math.cos(angle),
+                            y,
+                            target.getZ() + radius * Math.sin(angle),
+                            1, 0, 0, 0, 0);
+                }
+            }
+
+            if (y % 8 == 0) {
+                world.spawnParticles(ParticleTypes.ELECTRIC_SPARK,
+                        target.getX(), y, target.getZ(),
+                        3, 0.5, 0.1, 0.5, 0.2);
+            }
+        }
+
+        for (int r = 0; r < 48; r++) {
+            double angle = (2 * Math.PI * r) / 48;
+            double radius = 4.0 + Math.random() * 3;
+            world.spawnParticles(ParticleTypes.FLAME,
+                    target.getX() + radius * Math.cos(angle),
+                    target.getY() + 0.5,
+                    target.getZ() + radius * Math.sin(angle),
+                    1, 0, 0.1, 0, 0);
         }
     }
 
     private static void executeStrike(ServerWorld world, BlockPos target) {
-        // Final burst
-        for (int i = 0; i < 200; i++) {
+        for (int i = 0; i < 300; i++) {
             double angle = Math.random() * 2 * Math.PI;
-            double r = Math.random() * 20;
+            double r = Math.random() * 25;
             world.spawnParticles(ParticleTypes.FLAME,
                     target.getX() + r * Math.cos(angle),
-                    target.getY() + Math.random() * 30,
+                    target.getY() + Math.random() * 40,
                     target.getZ() + r * Math.sin(angle),
-                    1, 0, 0.5, 0, 0.2);
+                    1, 0, 0.3, 0, 0);
+            world.spawnParticles(ParticleTypes.ELECTRIC_SPARK,
+                    target.getX() + r * Math.cos(angle),
+                    target.getY() + Math.random() * 20,
+                    target.getZ() + r * Math.sin(angle),
+                    1, 0.5, 0.5, 0.5, 0.2);
         }
 
         world.createExplosion(null,
